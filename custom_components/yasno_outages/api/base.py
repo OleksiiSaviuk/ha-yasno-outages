@@ -1,5 +1,6 @@
 """Base API class for Yasno outages."""
 
+import asyncio
 import datetime
 import logging
 from abc import ABC, abstractmethod
@@ -7,6 +8,8 @@ from abc import ABC, abstractmethod
 import aiohttp
 
 from .const import (
+    API_FETCH_RETRIES,
+    API_FETCH_RETRY_DELAY_SECS,
     API_HTTP_STATUS_NOT_FOUND,
     API_PARAM_DSO_ID,
     API_PARAM_HOUSE_ID,
@@ -51,24 +54,40 @@ class BaseYasnoApi(ABC):
         url: str,
         timeout_secs: int = 60,
         params: dict[str, int | str] | None = None,
+        retries: int = API_FETCH_RETRIES,
     ) -> dict | list:
-        """Fetch data from the given URL."""
-        try:
-            async with session.get(
+        """Fetch data from the given URL, retrying transient errors."""
+        msg = f"Failed to fetch data from {url}"
+        for attempt in range(1, retries + 1):
+            try:
+                async with session.get(
+                    url,
+                    timeout=aiohttp.ClientTimeout(total=timeout_secs),
+                    params=params,
+                ) as response:
+                    response.raise_for_status()
+                    return await response.json()
+            except aiohttp.ClientResponseError as err:
+                if err.status == API_HTTP_STATUS_NOT_FOUND:
+                    raise YasnoNotFoundError(msg) from err
+                if attempt >= retries:
+                    raise YasnoApiError(msg) from err
+            except (aiohttp.ClientError, TimeoutError) as err:
+                if attempt >= retries:
+                    raise YasnoApiError(msg) from err
+            except ValueError as err:
+                raise YasnoApiError(msg) from err
+
+            LOGGER.warning(
+                "Fetch failed (%s/%s), retrying in %ss: %s",
+                attempt,
+                retries,
+                API_FETCH_RETRY_DELAY_SECS,
                 url,
-                timeout=aiohttp.ClientTimeout(total=timeout_secs),
-                params=params,
-            ) as response:
-                response.raise_for_status()
-                return await response.json()
-        except aiohttp.ClientResponseError as err:
-            msg = f"Failed to fetch data from {url}"
-            if err.status == API_HTTP_STATUS_NOT_FOUND:
-                raise YasnoNotFoundError(msg) from err
-            raise YasnoApiError(msg) from err
-        except (aiohttp.ClientError, aiohttp.ContentTypeError, ValueError) as err:
-            msg = f"Failed to fetch data from {url}"
-            raise YasnoApiError(msg) from err
+            )
+            await asyncio.sleep(API_FETCH_RETRY_DELAY_SECS)
+
+        raise YasnoApiError(msg)
 
     async def fetch_regions(self) -> None:
         """Fetch regions and providers data."""

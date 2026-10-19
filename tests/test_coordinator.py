@@ -339,6 +339,82 @@ class TestCoordinatorGetOutageAt:
         assert result is None
 
 
+class TestCoordinatorWaitingForSchedule:
+    """Test planned events are hidden while schedule is not settled."""
+
+    @pytest.fixture
+    def events(self, today):
+        """Planned outage events for today and tomorrow."""
+        return [
+            OutageEvent(
+                start=today + timedelta(hours=10),
+                end=today + timedelta(hours=12),
+                event_type=OutageEventType.DEFINITE,
+                source=OutageSource.PLANNED,
+            ),
+            OutageEvent(
+                start=today + timedelta(days=1, hours=10),
+                end=today + timedelta(days=1, hours=12),
+                event_type=OutageEventType.DEFINITE,
+                source=OutageSource.PLANNED,
+            ),
+        ]
+
+    @pytest.fixture
+    def planned(self, coordinator, today):
+        """Configure planned API dates."""
+        planned = coordinator.api.planned
+        planned.get_today_date = MagicMock(return_value=today.date())
+        planned.get_tomorrow_date = MagicMock(
+            return_value=(today + timedelta(days=1)).date()
+        )
+        return planned
+
+    def test_skips_waiting_day_events(self, coordinator, planned, events, today):
+        """Test events on waiting-for-schedule day are filtered."""
+        planned.get_status_today = MagicMock(return_value=API_STATUS_SCHEDULE_APPLIES)
+        planned.get_status_tomorrow = MagicMock(
+            return_value=API_STATUS_WAITING_FOR_SCHEDULE
+        )
+        planned.get_events_between = MagicMock(return_value=events)
+
+        result = coordinator.get_planned_events_between(
+            today, today + timedelta(days=2)
+        )
+
+        assert result == [events[0]]
+
+    def test_keeps_events_when_schedule_applies(
+        self, coordinator, planned, events, today
+    ):
+        """Test events kept when both days have settled schedule."""
+        planned.get_status_today = MagicMock(return_value=API_STATUS_SCHEDULE_APPLIES)
+        planned.get_status_tomorrow = MagicMock(
+            return_value=API_STATUS_SCHEDULE_APPLIES
+        )
+        planned.get_events_between = MagicMock(return_value=events)
+
+        result = coordinator.get_planned_events_between(
+            today, today + timedelta(days=2)
+        )
+
+        assert result == events
+
+    def test_planned_outage_at_none_when_waiting(
+        self, coordinator, planned, events, today
+    ):
+        """Test planned outage lookup returns None on waiting day."""
+        planned.get_status_today = MagicMock(
+            return_value=API_STATUS_WAITING_FOR_SCHEDULE
+        )
+        planned.get_current_event = MagicMock(return_value=events[0])
+
+        result = coordinator.get_planned_outage_at(today + timedelta(hours=11))
+
+        assert result is None
+        planned.get_current_event.assert_not_called()
+
+
 class TestCoordinatorEventToState:
     """Test _event_to_state method."""
 

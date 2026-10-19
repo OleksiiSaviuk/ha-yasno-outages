@@ -26,6 +26,16 @@ TEST_PROVIDER_ID = 902
 TEST_GROUP = "3.1"
 
 
+@pytest.fixture(autouse=True)
+def mock_sleep():
+    """Skip retry delays in fetch tests."""
+    with patch(
+        "custom_components.yasno_outages.api.base.asyncio.sleep",
+        new_callable=AsyncMock,
+    ) as sleep:
+        yield sleep
+
+
 # Create a concrete implementation for testing
 class ConcreteYasnoApi(BaseYasnoApi):
     """Concrete implementation of BaseYasnoApi for testing."""
@@ -183,6 +193,56 @@ class TestBaseYasnoApiFetchData:
             async with aiohttp.ClientSession() as session:
                 with pytest.raises(YasnoApiError, match=test_url):
                     await api._get_data(session, test_url)
+
+    async def test_get_data_retries_then_succeeds(self, api, mock_sleep):
+        """Test transient error is retried and data returned."""
+        test_data = {"key": "value"}
+        mock_response = AsyncMock()
+        mock_response.json = AsyncMock(return_value=test_data)
+        mock_response.raise_for_status = MagicMock()
+        with patch("aiohttp.ClientSession.get") as mock_get:
+            mock_get.return_value.__aenter__.side_effect = [
+                aiohttp.ClientError(),
+                TimeoutError(),
+                mock_response,
+            ]
+
+            async with aiohttp.ClientSession() as session:
+                result = await api._get_data(session, "https://example.com")
+
+        assert result == test_data
+        assert mock_get.call_count == 3
+        assert mock_sleep.await_count == 2
+
+    async def test_get_data_raises_after_all_retries(self, api, mock_sleep):
+        """Test YasnoApiError raised when all retries fail."""
+        with patch("aiohttp.ClientSession.get") as mock_get:
+            mock_get.return_value.__aenter__.side_effect = TimeoutError()
+
+            async with aiohttp.ClientSession() as session:
+                with pytest.raises(YasnoApiError):
+                    await api._get_data(session, "https://example.com", retries=2)
+
+        assert mock_get.call_count == 2
+        assert mock_sleep.await_count == 1
+
+    async def test_get_data_404_not_retried(self, api, mock_sleep):
+        """Test 404 is not retried."""
+        with patch("aiohttp.ClientSession.get") as mock_get:
+            mock_get.return_value.__aenter__.side_effect = aiohttp.ClientResponseError(
+                request_info=MagicMock(),
+                history=(),
+                status=404,
+                message="Not Found",
+                headers=None,
+            )
+
+            async with aiohttp.ClientSession() as session:
+                with pytest.raises(YasnoNotFoundError):
+                    await api._get_data(session, "https://example.com")
+
+        assert mock_get.call_count == 1
+        mock_sleep.assert_not_awaited()
 
 
 class TestBaseYasnoApiRegions:

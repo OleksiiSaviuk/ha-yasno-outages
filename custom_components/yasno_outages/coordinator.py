@@ -293,7 +293,7 @@ class YasnoOutagesCoordinator(DataUpdateCoordinator):
         """Get the current planned event (including NotPlanned events)."""
         try:
             return self.api.planned.get_current_event(dt_utils.now())
-        except Exception:  # noqa: BLE001
+        except Exception:
             LOGGER.warning(
                 "Failed to get current event, sensors will show unknown state",
                 exc_info=True,
@@ -406,7 +406,7 @@ class YasnoOutagesCoordinator(DataUpdateCoordinator):
         """Get an outage event at a given time from provided API."""
         try:
             event = api.get_current_event(at)
-        except Exception:  # noqa: BLE001
+        except Exception:
             LOGGER.warning("Failed to get current outage", exc_info=True)
             return None
         if not is_outage_event(event):
@@ -415,6 +415,8 @@ class YasnoOutagesCoordinator(DataUpdateCoordinator):
 
     def get_planned_outage_at(self, at: datetime.datetime) -> OutageEvent | None:
         """Get the planned outage event at a given time."""
+        if self._is_waiting_for_schedule(at.date()):
+            return None
         return self.get_outage_at(self.api.planned, at)
 
     def get_probable_outage_at(self, at: datetime.datetime) -> OutageEvent | None:
@@ -430,7 +432,7 @@ class YasnoOutagesCoordinator(DataUpdateCoordinator):
         """Get outage events within the date range for provided API."""
         try:
             events = api.get_events_between(start_date, end_date)
-        except Exception:  # noqa: BLE001
+        except Exception:
             LOGGER.warning(
                 'Failed to get events between "%s" -> "%s"',
                 start_date,
@@ -447,8 +449,25 @@ class YasnoOutagesCoordinator(DataUpdateCoordinator):
         start_date: datetime.datetime,
         end_date: datetime.datetime,
     ) -> list[OutageEvent]:
-        """Get all planned events (filtering out NOT_PLANNED)."""
-        return self.get_events_between(self.api.planned, start_date, end_date)
+        """Get planned events, skipping NOT_PLANNED and unsettled days."""
+        events = self.get_events_between(self.api.planned, start_date, end_date)
+        return [
+            event
+            for event in events
+            if not self._is_waiting_for_schedule(event.start.date())
+        ]
+
+    def _planned_status_for_date(self, date: datetime.date) -> str | None:
+        """Get raw planned status for a given date, if available."""
+        if date == self.api.planned.get_today_date():
+            return self.api.planned.get_status_today()
+        if date == self.api.planned.get_tomorrow_date():
+            return self.api.planned.get_status_tomorrow()
+        return None
+
+    def _is_waiting_for_schedule(self, date: datetime.date) -> bool:
+        """Return True when planned schedule for date is not settled yet."""
+        return self._planned_status_for_date(date) == API_STATUS_WAITING_FOR_SCHEDULE
 
     def get_probable_events_between(
         self,

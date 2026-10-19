@@ -31,6 +31,8 @@ API_PARAM_QUERY: Final = "query"
 API_PARAM_STREET_ID: Final = "streetId"
 API_PARAM_HOUSE_ID: Final = "houseId"
 API_HTTP_STATUS_NOT_FOUND: Final = 404
+API_FETCH_RETRIES: Final = 3
+API_FETCH_RETRY_DELAY_SECS: Final = 2.0
 
 # API Status values
 API_STATUS_NO_OUTAGES: Final = "NoOutages"
