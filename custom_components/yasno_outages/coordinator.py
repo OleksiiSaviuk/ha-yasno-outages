@@ -293,7 +293,7 @@ class YasnoOutagesCoordinator(DataUpdateCoordinator):
         """Get the current planned event (including NotPlanned events)."""
         try:
             return self.api.planned.get_current_event(dt_utils.now())
-        except Exception:
+        except Exception:  # noqa: BLE001
             LOGGER.warning(
                 "Failed to get current event, sensors will show unknown state",
                 exc_info=True,
@@ -406,7 +406,7 @@ class YasnoOutagesCoordinator(DataUpdateCoordinator):
         """Get an outage event at a given time from provided API."""
         try:
             event = api.get_current_event(at)
-        except Exception:
+        except Exception:  # noqa: BLE001
             LOGGER.warning("Failed to get current outage", exc_info=True)
             return None
         if not is_outage_event(event):
@@ -432,7 +432,7 @@ class YasnoOutagesCoordinator(DataUpdateCoordinator):
         """Get outage events within the date range for provided API."""
         try:
             events = api.get_events_between(start_date, end_date)
-        except Exception:
+        except Exception:  # noqa: BLE001
             LOGGER.warning(
                 'Failed to get events between "%s" -> "%s"',
                 start_date,
