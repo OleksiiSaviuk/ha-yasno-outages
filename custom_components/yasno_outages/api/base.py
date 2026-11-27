@@ -11,11 +11,13 @@ from .const import (
     API_FETCH_RETRIES,
     API_FETCH_RETRY_DELAY_SECS,
     API_HTTP_STATUS_NOT_FOUND,
+    API_PARAM_CITY_ID,
     API_PARAM_DSO_ID,
     API_PARAM_HOUSE_ID,
     API_PARAM_QUERY,
     API_PARAM_REGION_ID,
     API_PARAM_STREET_ID,
+    CITIES_ENDPOINT,
     GROUP_BY_ADDRESS_ENDPOINT,
     HOUSES_ENDPOINT,
     REGIONS_ENDPOINT,
@@ -144,11 +146,50 @@ class BaseYasnoApi(ABC):
                 return provider
         return None
 
+    @staticmethod
+    def _with_city(
+        params: dict[str, int | str],
+        city_id: int | None,
+    ) -> dict[str, int | str]:
+        """Add city id to request params when set; API rejects cityId=0."""
+        if city_id:
+            return {**params, API_PARAM_CITY_ID: city_id}
+        return params
+
+    async def fetch_cities(
+        self,
+        region_id: int | None,
+        provider_id: int | None,
+        query: str = "",
+    ) -> list[dict]:
+        """Fetch cities (settlements) by query; empty when region has none."""
+        if not region_id or not provider_id:
+            LOGGER.warning(
+                "Region ID and Provider ID must be set before fetching cities",
+            )
+            return []
+
+        async with aiohttp.ClientSession() as session:
+            data = await self._get_data(
+                session,
+                CITIES_ENDPOINT,
+                params={
+                    API_PARAM_REGION_ID: region_id,
+                    API_PARAM_DSO_ID: provider_id,
+                    API_PARAM_QUERY: query,
+                },
+            )
+        if not isinstance(data, list):
+            msg = "Unexpected cities response format"
+            raise YasnoApiError(msg)
+        return data
+
     async def fetch_streets(
         self,
         region_id: int | None,
         provider_id: int | None,
         query: str,
+        city_id: int | None = None,
     ) -> list[dict]:
         """Fetch streets by query."""
         if not region_id or not provider_id:
@@ -161,11 +202,14 @@ class BaseYasnoApi(ABC):
             data = await self._get_data(
                 session,
                 STREETS_ENDPOINT,
-                params={
-                    API_PARAM_REGION_ID: region_id,
-                    API_PARAM_DSO_ID: provider_id,
-                    API_PARAM_QUERY: query,
-                },
+                params=self._with_city(
+                    {
+                        API_PARAM_REGION_ID: region_id,
+                        API_PARAM_DSO_ID: provider_id,
+                        API_PARAM_QUERY: query,
+                    },
+                    city_id,
+                ),
             )
         if not isinstance(data, list):
             msg = "Unexpected streets response format"
@@ -178,6 +222,7 @@ class BaseYasnoApi(ABC):
         provider_id: int | None,
         street_id: int | None,
         query: str,
+        city_id: int | None = None,
     ) -> list[dict]:
         """Fetch houses by street and query."""
         if not region_id or not provider_id or not street_id:
@@ -191,12 +236,15 @@ class BaseYasnoApi(ABC):
             data = await self._get_data(
                 session,
                 HOUSES_ENDPOINT,
-                params={
-                    API_PARAM_REGION_ID: region_id,
-                    API_PARAM_STREET_ID: street_id,
-                    API_PARAM_DSO_ID: provider_id,
-                    API_PARAM_QUERY: query,
-                },
+                params=self._with_city(
+                    {
+                        API_PARAM_REGION_ID: region_id,
+                        API_PARAM_STREET_ID: street_id,
+                        API_PARAM_DSO_ID: provider_id,
+                        API_PARAM_QUERY: query,
+                    },
+                    city_id,
+                ),
             )
         if not isinstance(data, list):
             msg = "Unexpected houses response format"
@@ -209,6 +257,7 @@ class BaseYasnoApi(ABC):
         provider_id: int | None,
         street_id: int | None,
         house_id: int | None,
+        city_id: int | None = None,
     ) -> str | None:
         """Fetch group by address ids."""
         if not region_id or not provider_id or not street_id or not house_id:
@@ -222,12 +271,15 @@ class BaseYasnoApi(ABC):
             data = await self._get_data(
                 session,
                 GROUP_BY_ADDRESS_ENDPOINT,
-                params={
-                    API_PARAM_REGION_ID: region_id,
-                    API_PARAM_STREET_ID: street_id,
-                    API_PARAM_HOUSE_ID: house_id,
-                    API_PARAM_DSO_ID: provider_id,
-                },
+                params=self._with_city(
+                    {
+                        API_PARAM_REGION_ID: region_id,
+                        API_PARAM_STREET_ID: street_id,
+                        API_PARAM_HOUSE_ID: house_id,
+                        API_PARAM_DSO_ID: provider_id,
+                    },
+                    city_id,
+                ),
             )
 
         if not isinstance(data, dict):
