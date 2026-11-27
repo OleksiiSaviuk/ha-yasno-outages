@@ -441,6 +441,26 @@ class TestCoordinatorWaitingForSchedule:
         assert result is None
         planned.get_current_event.assert_not_called()
 
+    def test_planned_outage_at_uses_kyiv_date(
+        self, coordinator, planned, events, today
+    ):
+        """Test waiting check uses Kyiv date for non-Kyiv timestamps."""
+        planned.get_status_today = MagicMock(
+            return_value=API_STATUS_WAITING_FOR_SCHEDULE
+        )
+        planned.get_status_tomorrow = MagicMock(
+            return_value=API_STATUS_SCHEDULE_APPLIES
+        )
+        planned.get_current_event = MagicMock(return_value=events[0])
+        # 23:30 UTC previous day == 01:30 Kyiv today (waiting day)
+        at = (today + timedelta(hours=1, minutes=30)).astimezone(ZoneInfo("UTC"))
+        assert at.date() != today.date()
+
+        result = coordinator.get_planned_outage_at(at)
+
+        assert result is None
+        planned.get_current_event.assert_not_called()
+
 
 class TestCoordinatorEventToState:
     """Test _event_to_state method."""

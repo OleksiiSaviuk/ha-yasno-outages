@@ -518,7 +518,7 @@ class YasnoOutagesCoordinator(DataUpdateCoordinator):
 
     def get_planned_outage_at(self, at: datetime.datetime) -> OutageEvent | None:
         """Get the planned outage event at a given time."""
-        if self._is_waiting_for_schedule(at.date()):
+        if self._is_waiting_for_schedule(at.astimezone(UA_TZ).date()):
             return None
         return self.get_outage_at(self.api.planned, at)
 
